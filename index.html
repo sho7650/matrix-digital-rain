@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Matrix</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+<canvas id="matrix"></canvas>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('matrix');
+  const ctx = canvas.getContext('2d');
+
+  // --- Configuration ---
+  const FONT_SIZE = 16;
+  const COLUMN_GAP = FONT_SIZE;          // px per column
+  const FADE_ALPHA = 0.04;               // lower = longer trails
+  const SPEED_MIN = 0.3;
+  const SPEED_MAX = 1.2;
+  const CHAR_CHANGE_PROB = 0.02;         // per-frame probability a cell mutates
+  const HEAD_BRIGHTNESS = '#cefad0';     // almost-white green tip
+  const BODY_COLOR_H = 120;              // hue for body chars
+  const TRAIL_STEPS = 26;                // how many cells in a visible trail
+
+  // Half-width katakana block (U+FF66–FF9D) – the set used in the film
+  const KATAKANA = [];
+  for (let i = 0xFF66; i <= 0xFF9D; i++) KATAKANA.push(String.fromCharCode(i));
+  // Sprinkle in some digits & latin for variety
+  for (let i = 0x30; i <= 0x39; i++) KATAKANA.push(String.fromCharCode(i));
+  for (let i = 0x41; i <= 0x5A; i++) KATAKANA.push(String.fromCharCode(i));
+
+  const randChar = () => KATAKANA[Math.floor(Math.random() * KATAKANA.length)];
+  const randBetween = (a, b) => a + Math.random() * (b - a);
+
+  // --- State ---
+  let columns = [];
+  let W, H, colCount, rowCount;
+
+  function resize() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    colCount = Math.ceil(W / COLUMN_GAP);
+    rowCount = Math.ceil(H / FONT_SIZE) + 2;
+    rebuildColumns();
+  }
+
+  function makeColumn(x, randomStart) {
+    const speed = randBetween(SPEED_MIN, SPEED_MAX);
+    return {
+      x,
+      y: randomStart ? -Math.random() * rowCount : -Math.floor(randBetween(5, rowCount)),
+      speed,
+      chars: Array.from({ length: rowCount + TRAIL_STEPS }, () => randChar()),
+      trailLen: Math.floor(randBetween(TRAIL_STEPS * 0.5, TRAIL_STEPS * 1.4)),
+    };
+  }
+
+  function rebuildColumns() {
+    const old = columns;
+    columns = [];
+    for (let i = 0; i < colCount; i++) {
+      const x = i * COLUMN_GAP;
+      // Reuse existing column if available so animation doesn't reset on resize
+      if (old[i]) {
+        old[i].x = x;
+        columns.push(old[i]);
+      } else {
+        columns.push(makeColumn(x, true));
+      }
+    }
+  }
+
+  // --- Drawing ---
+  function draw() {
+    // Semi-transparent black overlay creates the fading trail effect
+    ctx.fillStyle = `rgba(0, 0, 0, ${FADE_ALPHA})`;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.font = `${FONT_SIZE}px "MS Gothic", "Yu Gothic", monospace`;
+    ctx.textBaseline = 'top';
+
+    for (let c = 0; c < columns.length; c++) {
+      const col = columns[c];
+
+      // Randomly mutate some characters for the "flickering" look
+      for (let k = 0; k < col.chars.length; k++) {
+        if (Math.random() < CHAR_CHANGE_PROB) col.chars[k] = randChar();
+      }
+
+      const headRow = Math.floor(col.y);
+
+      for (let t = 0; t < col.trailLen; t++) {
+        const row = headRow - t;
+        if (row < 0 || row >= rowCount) continue;
+
+        const charIndex = ((row % col.chars.length) + col.chars.length) % col.chars.length;
+        const ch = col.chars[charIndex];
+        const py = row * FONT_SIZE;
+
+        if (t === 0) {
+          // Head: bright white-green
+          ctx.fillStyle = HEAD_BRIGHTNESS;
+          ctx.globalAlpha = 1.0;
+        } else {
+          // Body: green fading out
+          const fade = 1 - t / col.trailLen;
+          const lightness = 30 + fade * 40; // 70 → 30
+          ctx.fillStyle = `hsl(${BODY_COLOR_H}, 100%, ${lightness}%)`;
+          ctx.globalAlpha = fade * 0.9 + 0.1;
+        }
+
+        // Mirror (flip horizontally) each character – signature Matrix look
+        ctx.save();
+        ctx.translate(col.x + FONT_SIZE / 2, py);
+        ctx.scale(-1, 1);
+        ctx.fillText(ch, 0, 0);
+        ctx.restore();
+      }
+
+      // Advance
+      col.y += col.speed;
+
+      // Reset when the entire trail has scrolled off-screen
+      if ((headRow - col.trailLen) * FONT_SIZE > H) {
+        columns[c] = makeColumn(col.x, false);
+      }
+    }
+
+    ctx.globalAlpha = 1.0;
+    requestAnimationFrame(draw);
+  }
+
+  // --- Init ---
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Kick off with a fully black canvas
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
